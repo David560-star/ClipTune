@@ -5,6 +5,7 @@ package.domain = org.musicdl
 source.dir = .
 source.include_exts = py,png,jpg,kv,atlas
 version = 0.01
+icon.filename = %(source.dir)s/icon.png
 requirements = python3,kivy,yt-dlp,requests,certifi,openssl
 orientation = portrait
 android.manifest.intent_filters = intent_filters.xml
