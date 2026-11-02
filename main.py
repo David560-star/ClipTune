@@ -5,13 +5,18 @@ import traceback
 
 import yt_dlp
 from kivy.app import App
+from kivy.animation import Animation
 from kivy.clock import Clock
 from kivy.core.clipboard import Clipboard
 from kivy.core.window import Window
 from kivy.lang import Builder
 from kivy.properties import ListProperty, NumericProperty
+from kivy.graphics import Color, Rectangle
+from kivy.metrics import dp
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.button import Button
+from kivy.uix.floatlayout import FloatLayout
+from kivy.uix.image import Image
 from kivy.uix.widget import Widget
 
 try:
@@ -249,6 +254,36 @@ KV_PANTALLA = '''
 Builder.load_string(KV_PANTALLA)
 
 
+class Splash(FloatLayout):
+    """Pantalla de entrada con el logo animado."""
+
+    def __init__(self, **kw):
+        super().__init__(**kw)
+        with self.canvas.before:
+            Color(*FONDO)
+            self.rect = Rectangle(pos=self.pos, size=self.size)
+        self.bind(pos=self._actualizar, size=self._actualizar)
+        self.logo = Image(source="icon.png", size_hint=(None, None),
+                          size=(dp(110), dp(110)),
+                          pos_hint={"center_x": .5, "center_y": .5},
+                          opacity=0)
+        self.add_widget(self.logo)
+
+    def _actualizar(self, *_):
+        self.rect.pos = self.pos
+        self.rect.size = self.size
+
+    def animar(self, al_terminar):
+        entrada = Animation(opacity=1, size=(dp(190), dp(190)),
+                            duration=0.9, t="out_back")
+        pausa = Animation(duration=0.7)
+        salida = Animation(opacity=0, duration=0.5)
+        entrada.bind(on_complete=lambda *_: pausa.start(self.logo))
+        pausa.bind(on_complete=lambda *_: salida.start(self))
+        salida.bind(on_complete=lambda *_: al_terminar())
+        entrada.start(self.logo)
+
+
 class Pantalla(BoxLayout):
     ocupado = False
 
@@ -339,9 +374,17 @@ class DescargadorApp(App):
         except Exception:
             pass
         self.pantalla = Pantalla()
-        return self.pantalla
+        self.raiz = FloatLayout()
+        self.raiz.add_widget(self.pantalla)
+        self.splash = Splash()
+        self.raiz.add_widget(self.splash)
+        return self.raiz
+
+    def quitar_splash(self):
+        self.raiz.remove_widget(self.splash)
 
     def on_start(self):
+        self.splash.animar(self.quitar_splash)
         # Recibir enlaces compartidos desde otras apps (Android)
         try:
             from android import activity
