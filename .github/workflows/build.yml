@@ -57,5 +57,5 @@ jobs:
         run: awk '/# Command failed/{exit} {print}' build.log | tail -40
       - uses: actions/upload-artifact@v4
         with:
-          name: MusicDL-${{ matrix.arch }}
+          name: ClipTune-${{ matrix.arch }},
           path: bin/*.apk
