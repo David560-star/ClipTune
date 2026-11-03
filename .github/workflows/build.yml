@@ -21,8 +21,46 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y git zip unzip autoconf libtool pkg-config zlib1g-dev libncurses5-dev libncursesw5-dev libtinfo5 cmake libffi-dev libssl-dev
           pip install --upgrade pip cython==0.29.36 buildozer
+      - name: Colocar el código Java
+        run: |
+          mkdir -p java/org/musicdl/musicdl2
+          cp ShareActivity.java java/org/musicdl/musicdl2/ShareActivity.java
       - name: Configurar arquitectura
         run: sed -i 's/^android.archs.*/android.archs = ${{ matrix.arch }}/' buildozer.spec
+      - name: Preparar python-for-android
+        run: |
+          buildozer -v android p4a -- --help || true
+          P4A=.buildozer/android/platform/python-for-android
+          [ -d "$P4A" ] || git clone --depth 1 https://github.com/kivy/python-for-android.git "$P4A"
+          rm -rf ../p4a_local
+          cp -r "$P4A" ../p4a_local
+          python - <<'EOF'
+          import glob, sys
+          bloque = """
+              <activity android:name=".ShareActivity"
+                        android:label="MusicDL"
+                        android:theme="@android:style/Theme.Translucent.NoTitleBar"
+                        android:exported="true"
+                        android:excludeFromRecents="true"
+                        android:taskAffinity="">
+                  <intent-filter>
+                      <action android:name="android.intent.action.SEND" />
+                      <category android:name="android.intent.category.DEFAULT" />
+                      <data android:mimeType="text/plain" />
+                  </intent-filter>
+              </activity>
+          """
+          total = 0
+          for a in glob.glob("../p4a_local/**/AndroidManifest.tmpl.xml", recursive=True):
+              t = open(a, encoding="utf-8").read()
+              if "</application>" in t and ".ShareActivity" not in t:
+                  open(a, "w", encoding="utf-8").write(t.replace("</application>", bloque + "</application>", 1))
+                  total += 1
+                  print("parchado:", a)
+          if total == 0:
+              sys.exit("No encontré la plantilla del manifiesto")
+          EOF
+          sed -i "/^\[app\]/a p4a.source_dir = $(realpath ../p4a_local)" buildozer.spec
       - name: Compilar APK
         run: |
           set -o pipefail
