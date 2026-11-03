@@ -24,7 +24,7 @@ jobs:
       - name: Colocar el código Java
         run: |
           mkdir -p java/org/musicdl/musicdl2
-          cp ShareActivity.java java/org/musicdl/musicdl2/ShareActivity.java
+          cp ShareActivity.java CancelReceiver.java java/org/musicdl/musicdl2/
       - name: Configurar arquitectura
         run: sed -i 's/^android.archs.*/android.archs = ${{ matrix.arch }}/' buildozer.spec
       - name: Preparar python-for-android
@@ -36,25 +36,12 @@ jobs:
           cp -r "$P4A" ../p4a_local
           python - <<'EOF'
           import glob, sys
-          bloque = """
-              <activity android:name=".ShareActivity"
-                        android:label="MusicDL"
-                        android:theme="@android:style/Theme.Translucent.NoTitleBar"
-                        android:exported="true"
-                        android:excludeFromRecents="true"
-                        android:taskAffinity="">
-                  <intent-filter>
-                      <action android:name="android.intent.action.SEND" />
-                      <category android:name="android.intent.category.DEFAULT" />
-                      <data android:mimeType="text/plain" />
-                  </intent-filter>
-              </activity>
-          """
+          bloque = open("manifest_extra.xml", encoding="utf-8").read()
           total = 0
           for a in glob.glob("../p4a_local/**/AndroidManifest.tmpl.xml", recursive=True):
               t = open(a, encoding="utf-8").read()
               if "</application>" in t and ".ShareActivity" not in t:
-                  open(a, "w", encoding="utf-8").write(t.replace("</application>", bloque + "</application>", 1))
+                  open(a, "w", encoding="utf-8").write(t.replace("</application>", bloque + "\n</application>", 1))
                   total += 1
                   print("parchado:", a)
           if total == 0:
