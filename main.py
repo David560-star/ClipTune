@@ -4,6 +4,7 @@ import threading
 import traceback
 
 import yt_dlp
+import yt_dlp.version
 from kivy.app import App
 from kivy.animation import Animation
 from kivy.clock import Clock
@@ -26,6 +27,10 @@ except Exception:
     pass
 
 BASE = "/storage/emulated/0"
+
+# Clientes de YouTube a probar en orden (None = el predeterminado)
+CLIENTES_YT = [None, ["web_embedded"], ["visionos"], ["tv"],
+               ["android"], ["ios"]]
 PLANTILLA = "%(title).60s [%(id.-6:)s].%(ext)s"
 
 # Colores con buen contraste (texto claro sobre fondo oscuro)
@@ -350,11 +355,30 @@ class Pantalla(BoxLayout):
                                  TEXTO_SUAVE, pct)
         try:
             carpeta, privada = carpeta_trabajo(formato)
-            op = hacer_opciones(formato, int(self.ids.calidad.text),
-                                hook, carpeta)
-            with yt_dlp.YoutubeDL(op) as ydl:
-                info = ydl.extract_info(url, download=True)
-                ruta = info["requested_downloads"][0]["filepath"]
+            calidad = int(self.ids.calidad.text)
+            es_yt = "youtu" in url
+            # Para YouTube se prueban varios "clientes" hasta que uno
+            # entregue formatos descargables.
+            intentos = CLIENTES_YT if es_yt else [None]
+            ruta = None
+            ultimo_error = ""
+            for n, cliente in enumerate(intentos, 1):
+                if n > 1:
+                    self.mostrar(f"Probando otro método ({n}/{len(intentos)})...",
+                                 TEXTO_SUAVE, 0)
+                op = hacer_opciones(formato, calidad, hook, carpeta)
+                if cliente:
+                    op["extractor_args"] = {
+                        "youtube": {"player_client": cliente}}
+                try:
+                    with yt_dlp.YoutubeDL(op) as ydl:
+                        info = ydl.extract_info(url, download=True)
+                        ruta = info["requested_downloads"][0]["filepath"]
+                    break
+                except Exception as e:
+                    ultimo_error = str(e)
+            if not ruta:
+                raise RuntimeError(ultimo_error or "sin resultado")
             if privada:
                 self.mostrar("Guardando en la galería...",
                              TEXTO_SUAVE, 100)
@@ -362,9 +386,13 @@ class Pantalla(BoxLayout):
             carpeta_final = "Music" if formato == "audio" else "Movies"
             self.mostrar(f"Listo ✔ Guardado en {carpeta_final}",
                          OK, 100)
-        except Exception:
+        except Exception as e:
+            try:
+                ver = yt_dlp.version.__version__
+            except Exception:
+                ver = "?"
             self.mostrar("No se pudo descargar:\n"
-                         + traceback.format_exc()[-300:], ERROR, 0)
+                         + str(e)[-250:] + f"\n(yt-dlp {ver})", ERROR, 0)
         finally:
             self.ocupado = False
 
