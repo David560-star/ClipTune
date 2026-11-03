@@ -40,6 +40,10 @@ ERROR = (1.0, 0.55, 0.55, 1)
 
 Window.clearcolor = FONDO
 
+# Color de fondo de la pantalla de entrada. Debe ser igual al fondo de tu
+# icon.png (blanco = (1, 1, 1, 1)). Si tu PNG es transparente, usa FONDO.
+SPLASH_FONDO = (1, 1, 1, 1)
+
 
 class Boton(Button):
     fondo = ListProperty(AZUL)
@@ -260,11 +264,11 @@ class Splash(FloatLayout):
     def __init__(self, **kw):
         super().__init__(**kw)
         with self.canvas.before:
-            Color(*FONDO)
+            Color(*SPLASH_FONDO)
             self.rect = Rectangle(pos=self.pos, size=self.size)
         self.bind(pos=self._actualizar, size=self._actualizar)
         self.logo = Image(source="icon.png", size_hint=(None, None),
-                          size=(dp(110), dp(110)),
+                          size=(dp(180), dp(180)),
                           pos_hint={"center_x": .5, "center_y": .5},
                           opacity=0)
         self.add_widget(self.logo)
@@ -274,14 +278,17 @@ class Splash(FloatLayout):
         self.rect.size = self.size
 
     def animar(self, al_terminar):
-        entrada = Animation(opacity=1, size=(dp(190), dp(190)),
-                            duration=0.9, t="out_back")
-        pausa = Animation(duration=0.7)
-        salida = Animation(opacity=0, duration=0.5)
-        entrada.bind(on_complete=lambda *_: pausa.start(self.logo))
-        pausa.bind(on_complete=lambda *_: salida.start(self))
-        salida.bind(on_complete=lambda *_: al_terminar())
-        entrada.start(self.logo)
+        # Solo se anima la opacidad (muy liviano) y se espera un instante
+        # para que la app termine de cargar antes de empezar.
+        def empezar(dt):
+            entrada = Animation(opacity=1, duration=0.4)
+            pausa = Animation(duration=0.4)
+            salida = Animation(opacity=0, duration=0.3)
+            entrada.bind(on_complete=lambda *_: pausa.start(self.logo))
+            pausa.bind(on_complete=lambda *_: salida.start(self))
+            salida.bind(on_complete=lambda *_: al_terminar())
+            entrada.start(self.logo)
+        Clock.schedule_once(empezar, 0.3)
 
 
 class Pantalla(BoxLayout):
