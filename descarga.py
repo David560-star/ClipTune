@@ -3,6 +3,7 @@ import json
 import os
 import re
 import shutil
+import time
 
 import yt_dlp
 import yt_dlp.version
@@ -66,6 +67,84 @@ def leer_config():
     return c
 
 
+def dir_datos():
+    try:
+        return contexto().getFilesDir().getAbsolutePath()
+    except Exception:
+        return os.getcwd()
+
+
+def _ruta(nombre):
+    return os.path.join(dir_datos(), nombre)
+
+
+def agregar_a_cola(formato, url):
+    """Pide una descarga al servicio (la lee servicio.py)."""
+    with open(_ruta("cola.txt"), "a", encoding="utf-8") as f:
+        f.write(f"{formato}|{url}\n")
+
+
+def vaciar_cola():
+    try:
+        os.remove(_ruta("cola.txt"))
+    except OSError:
+        pass
+
+
+def pedir_cancelar():
+    open(_ruta("cancelar.flag"), "w").close()
+
+
+def hay_cancelar():
+    return os.path.exists(_ruta("cancelar.flag"))
+
+
+def quitar_cancelar():
+    try:
+        os.remove(_ruta("cancelar.flag"))
+    except OSError:
+        pass
+
+
+def escribir_estado(tipo, texto="", pct=None, ruta="", relativa=""):
+    """tipo: progreso | ok | error | cancelado."""
+    d = {"tipo": tipo, "texto": texto, "pct": pct, "ruta": ruta,
+         "relativa": relativa, "t": time.time()}
+    try:
+        tmp = _ruta("estado.json.tmp")
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(d, f)
+        os.replace(tmp, _ruta("estado.json"))
+    except Exception:
+        pass
+
+
+def leer_estado():
+    try:
+        with open(_ruta("estado.json"), encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return None
+
+
+def borrar_estado():
+    try:
+        os.remove(_ruta("estado.json"))
+    except OSError:
+        pass
+
+
+def arrancar_servicio():
+    """Arranca el servicio de descargas (clase generada por p4a)."""
+    from jnius import autoclass
+    ctx = contexto()
+    Servicio = autoclass(ctx.getPackageName() + ".ServiceDescargas")
+    try:
+        Servicio.start(ctx, "")
+    except Exception:
+        Servicio.start(ctx, "icon", "MusicDL", "Descargando", "")
+
+
 def carpeta_trabajo(formato):
     """En el APK: carpeta privada de la app. Fuera: Movies/Music."""
     try:
@@ -117,7 +196,7 @@ def publicar(ruta, formato, relativa):
             Scan.scanFile(ctx, [final], None, None)
         except Exception:
             pass
-        return final
+        return final, None, None
     CV = autoclass("android.content.ContentValues")
     File = autoclass("java.io.File")
     Files = autoclass("java.nio.file.Files")
@@ -154,7 +233,7 @@ def publicar(ruta, formato, relativa):
     except Exception:
         pass
     os.remove(ruta)
-    return f"{BASE}/{relativa}{nombre}"
+    return f"{BASE}/{relativa}{nombre}", str(uri.toString()), mime
 
 
 def hacer_opciones(formato, calidad, hook, carpeta):
@@ -178,7 +257,7 @@ def extraer_enlace(texto):
 
 def descargar(url, formato, destino, sub, calidad,
               al_progreso=None, al_estado=None, cancelado=None):
-    """Descarga y guarda. Devuelve (carpeta_relativa, ruta_completa).
+    """Descarga y guarda. Devuelve un dict: relativa, ruta, uri, mime.
 
     Lanza Cancelado si cancelado() devuelve True.
     """
@@ -221,12 +300,13 @@ def descargar(url, formato, destino, sub, calidad,
         if not ruta:
             raise RuntimeError(ultimo_error or "sin resultado")
         relativa = carpeta_destino(formato, destino, sub)
-        completa = ruta
+        completa, uri, mime = ruta, None, None
         if privada:
             if al_estado:
                 al_estado("Guardando en la galería...")
-            completa = publicar(ruta, formato, relativa)
-        return relativa, completa
+            completa, uri, mime = publicar(ruta, formato, relativa)
+        return {"relativa": relativa, "ruta": completa,
+                "uri": uri, "mime": mime}
     except Cancelado:
         if carpeta:
             limpiar_parciales(carpeta)

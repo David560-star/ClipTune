@@ -5,7 +5,8 @@ import traceback
 
 from jnius import autoclass, cast
 
-from descarga import descargar, leer_config
+from descarga import (Cancelado, descargar, escribir_estado, hay_cancelar,
+                      leer_config, quitar_cancelar, version_ytdlp)
 
 PythonService = autoclass("org.kivy.android.PythonService")
 servicio = PythonService.mService
@@ -14,10 +15,19 @@ VERSION = autoclass("android.os.Build$VERSION")
 NotifBuilder = autoclass("android.app.Notification$Builder")
 Drawable = autoclass("android.R$drawable")
 String = autoclass("java.lang.String")
+Intent = autoclass("android.content.Intent")
+Uri = autoclass("android.net.Uri")
+PendingIntent = autoclass("android.app.PendingIntent")
 
 CANAL = "musicdl_descargas"
 ID_PROGRESO = 7101
 _contador = [7200]
+FLAGS_PI = 67108864 | 134217728  # IMMUTABLE | UPDATE_CURRENT
+
+
+def siguiente():
+    _contador[0] += 1
+    return _contador[0]
 
 
 def cs(texto):
@@ -36,7 +46,27 @@ def crear_canal():
             Canal(CANAL, cs("Descargas"), 2))  # 2 = importancia baja
 
 
-def construir(titulo, texto, pct=None, en_curso=True):
+def pi_abrir_app():
+    i = servicio.getPackageManager().getLaunchIntentForPackage(
+        servicio.getPackageName())
+    return PendingIntent.getActivity(servicio, siguiente(), i, FLAGS_PI)
+
+
+def pi_ver(uri, mime):
+    i = Intent("android.intent.action.VIEW")
+    i.setDataAndType(Uri.parse(uri), mime)
+    i.addFlags(1 | 268435456)  # permiso de lectura | nueva tarea
+    return PendingIntent.getActivity(servicio, siguiente(), i, FLAGS_PI)
+
+
+def pi_cancelar():
+    i = Intent()
+    i.setClassName(servicio.getPackageName(),
+                   servicio.getPackageName() + ".CancelReceiver")
+    return PendingIntent.getBroadcast(servicio, 1, i, FLAGS_PI)
+
+
+def construir(titulo, texto, pct=None, en_curso=True, uri=None, mime=None):
     if VERSION.SDK_INT >= 26:
         b = NotifBuilder(servicio, CANAL)
     else:
@@ -44,6 +74,13 @@ def construir(titulo, texto, pct=None, en_curso=True):
     b.setContentTitle(cs(titulo))
     b.setContentText(cs(texto))
     b.setOnlyAlertOnce(True)
+    try:  # al tocarla: abre el archivo (si se puede) o la app
+        if uri:
+            b.setContentIntent(pi_ver(uri, mime or "*/*"))
+        else:
+            b.setContentIntent(pi_abrir_app())
+    except Exception:
+        pass
     if en_curso:
         b.setSmallIcon(Drawable.stat_sys_download)
         b.setOngoing(True)
@@ -51,6 +88,11 @@ def construir(titulo, texto, pct=None, en_curso=True):
             b.setProgress(0, 0, True)
         else:
             b.setProgress(100, int(pct), False)
+        try:  # botón Cancelar
+            b.addAction(Drawable.ic_menu_close_clear_cancel,
+                        cs("Cancelar"), pi_cancelar())
+        except Exception:
+            pass
     else:
         b.setSmallIcon(Drawable.stat_sys_download_done)
         b.setAutoCancel(True)
@@ -67,14 +109,14 @@ def actualizar(titulo, texto, pct=None):
     servicio.startForeground(ID_PROGRESO, construir(titulo, texto, pct))
 
 
-def avisar_final(titulo, texto):
-    _contador[0] += 1
-    gestor().notify(_contador[0],
-                    construir(titulo, texto, en_curso=False))
+def avisar_final(titulo, texto, uri=None, mime=None):
+    gestor().notify(siguiente(),
+                    construir(titulo, texto, en_curso=False,
+                              uri=uri, mime=mime))
 
 
 def tomar_lote(cola, proc):
-    """Lee las descargas pedidas desde la ventana de compartir."""
+    """Lee las descargas pedidas (ventana de compartir o la app)."""
     if os.path.exists(cola) and not os.path.exists(proc):
         try:
             os.replace(cola, proc)
@@ -95,27 +137,37 @@ def tomar_lote(cola, proc):
 def procesar(linea):
     formato, url = linea.split("|", 1)
     etiqueta = "música" if formato == "audio" else "video"
+    titulo = f"Descargando {etiqueta}"
     cfg = leer_config()
     ultimo = [0.0]
+    quitar_cancelar()  # limpia un cancelar viejo
+
+    def estado(texto, pct=None):
+        actualizar(titulo, texto, pct)
+        escribir_estado("progreso", texto, pct)
 
     def al_progreso(p):
         ahora = time.time()
         if ahora - ultimo[0] > 0.8 or p >= 100:
             ultimo[0] = ahora
-            actualizar(f"Descargando {etiqueta}", f"{p}%", p)
-
-    def al_estado(texto):
-        actualizar(f"Descargando {etiqueta}", texto)
+            estado(f"Descargando {p}%", p)
 
     try:
-        actualizar(f"Descargando {etiqueta}", "Iniciando...")
-        relativa, completa = descargar(
-            url, formato, cfg.get("destino", "Automática"),
-            cfg.get("sub", ""), cfg.get("calidad", "1080"),
-            al_progreso, al_estado)
-        avisar_final("Descarga lista ✔", completa)
+        estado("Iniciando...")
+        r = descargar(url, formato, cfg.get("destino", "Automática"),
+                      cfg.get("sub", ""), cfg.get("calidad", "1080"),
+                      al_progreso, estado, hay_cancelar)
+        escribir_estado("ok", "", 100, r["ruta"], r["relativa"])
+        avisar_final("Descarga lista ✔", r["ruta"], r.get("uri"),
+                     r.get("mime"))
+    except Cancelado:
+        quitar_cancelar()
+        escribir_estado("cancelado")
+        avisar_final("Descarga cancelada", "")
     except Exception as e:
-        avisar_final("No se pudo descargar", str(e)[-200:])
+        detalle = str(e)[-250:]
+        escribir_estado("error", detalle + f"\n(yt-dlp {version_ytdlp()})")
+        avisar_final("No se pudo descargar", detalle[-200:])
 
 
 def main():
@@ -123,6 +175,7 @@ def main():
         crear_canal()
         servicio.startForeground(ID_PROGRESO,
                                  construir("MusicDL", "Preparando..."))
+        escribir_estado("progreso", "Preparando...")
         base = servicio.getFilesDir().getAbsolutePath()
         cola = os.path.join(base, "cola.txt")
         proc = cola + ".proc"
@@ -137,9 +190,10 @@ def main():
             for linea in lineas:
                 procesar(linea)
     except Exception:
+        detalle = traceback.format_exc()[-300:]
+        escribir_estado("error", detalle)
         try:
-            avisar_final("MusicDL: error en el servicio",
-                         traceback.format_exc()[-300:])
+            avisar_final("MusicDL: error en el servicio", detalle)
         except Exception:
             pass
     finally:

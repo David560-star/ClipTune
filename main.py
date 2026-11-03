@@ -1,6 +1,7 @@
 import json
 import os
 import threading
+import time
 import traceback
 
 from kivy.app import App
@@ -18,8 +19,10 @@ from kivy.uix.floatlayout import FloatLayout
 from kivy.uix.image import Image
 from kivy.uix.widget import Widget
 
-from descarga import (Cancelado, descargar, extraer_enlace,
-                      ruta_config, version_ytdlp)
+from descarga import (Cancelado, agregar_a_cola, arrancar_servicio,
+                      borrar_estado, descargar, extraer_enlace,
+                      leer_estado, pedir_cancelar, quitar_cancelar,
+                      ruta_config, vaciar_cola, version_ytdlp)
 
 # Colores con buen contraste (texto claro sobre fondo oscuro)
 FONDO = (0.07, 0.08, 0.11, 1)
@@ -281,6 +284,11 @@ class Splash(FloatLayout):
 class Pantalla(BoxLayout):
     ocupado = False
     cancelado = False
+    modo_servicio = False   # descarga pedida desde esta pantalla
+    en_hilo = False         # plan B: descarga dentro de la app
+    t0 = time.time()        # cuándo abrió la app
+    t_pedido = 0.0
+    ultimo_t = 0.0
 
     def pegar(self):
         try:
@@ -322,9 +330,56 @@ class Pantalla(BoxLayout):
         Clock.schedule_once(_ui)
 
     def cancelar_descarga(self):
-        if self.ocupado:
+        if not self.ocupado:
+            return
+        if self.en_hilo:
             self.cancelado = True
-            self.mostrar("Cancelando...", TEXTO_SUAVE)
+        else:
+            pedir_cancelar()
+        self.mostrar("Cancelando...", TEXTO_SUAVE)
+
+    def sondear(self, dt):
+        """Lee lo que reporta el servicio y lo muestra en pantalla."""
+        e = leer_estado()
+        ahora = time.time()
+        if not e or e.get("t", 0) < self.t_pedido:
+            if self.modo_servicio and ahora - self.t_pedido > 25:
+                self.modo_servicio = False
+                self.poner_ocupado(False)
+                self.mostrar("No se pudo iniciar la descarga en "
+                             "segundo plano.", ERROR, 0)
+            return
+        t = e["t"]
+        tipo = e.get("tipo")
+        if tipo == "progreso":
+            if ahora - t > 180:      # el servicio dejó de responder
+                if self.modo_servicio:
+                    self.modo_servicio = False
+                    self.poner_ocupado(False)
+                    self.mostrar("La descarga dejó de responder.",
+                                 ERROR, 0)
+                return
+            if not self.ocupado:
+                self.poner_ocupado(True)
+            if t != self.ultimo_t:
+                self.ultimo_t = t
+                self.mostrar(e.get("texto", ""), TEXTO_SUAVE,
+                             e.get("pct") or 0)
+        elif tipo in ("ok", "error", "cancelado") \
+                and t != self.ultimo_t \
+                and (t >= self.t0 or self.modo_servicio):
+            self.ultimo_t = t
+            self.modo_servicio = False
+            self.poner_ocupado(False)
+            if tipo == "ok":
+                rel = e.get("relativa", "").rstrip("/")
+                self.mostrar(f"Listo ✔ Guardado en {rel}", OK, 100,
+                             ruta=e.get("ruta", ""))
+            elif tipo == "error":
+                self.mostrar("No se pudo descargar:\n"
+                             + e.get("texto", ""), ERROR, 0)
+            else:
+                self.mostrar("Descarga cancelada", TEXTO_SUAVE, 0)
 
     def _ruta_config(self):
         return ruta_config()
@@ -359,32 +414,47 @@ class Pantalla(BoxLayout):
             self.mostrar("Pega o comparte un enlace primero.", ERROR)
             return
         self.cancelado = False
-        self.poner_ocupado(True)
         self.guardar_config()
-        self.mostrar("Descargando...", TEXTO_SUAVE, 0)
-        threading.Thread(
-            target=self.bajar,
-            args=(url, formato, self.ids.destino.text,
-                  self.ids.subcarpeta.text,
-                  int(self.ids.calidad.text)),
-            daemon=True).start()
+        self.poner_ocupado(True)
+        self.mostrar("Iniciando...", TEXTO_SUAVE, 0)
+        try:
+            quitar_cancelar()
+            self.t_pedido = time.time()
+            borrar_estado()
+            agregar_a_cola(formato, url)
+            arrancar_servicio()
+            self.modo_servicio = True
+            self.en_hilo = False
+        except Exception:
+            # Plan B: descargar dentro de la app
+            vaciar_cola()
+            self.modo_servicio = False
+            self.en_hilo = True
+            threading.Thread(
+                target=self.bajar,
+                args=(url, formato, self.ids.destino.text,
+                      self.ids.subcarpeta.text,
+                      int(self.ids.calidad.text)),
+                daemon=True).start()
 
     def bajar(self, url, formato, destino, sub, calidad):
         try:
-            relativa, completa = descargar(
+            r = descargar(
                 url, formato, destino, sub, calidad,
                 al_progreso=lambda p: self.mostrar(
                     f"Descargando {p}%", TEXTO_SUAVE, p),
                 al_estado=lambda t: self.mostrar(t, TEXTO_SUAVE, 0),
                 cancelado=lambda: self.cancelado)
-            self.mostrar(f"Listo ✔ Guardado en {relativa.rstrip('/')}",
-                         OK, 100, ruta=completa)
+            self.mostrar(
+                f"Listo ✔ Guardado en {r['relativa'].rstrip('/')}",
+                OK, 100, ruta=r["ruta"])
         except Cancelado:
             self.mostrar("Descarga cancelada", TEXTO_SUAVE, 0)
         except Exception as e:
             self.mostrar("No se pudo descargar:\n" + str(e)[-250:]
                          + f"\n(yt-dlp {version_ytdlp()})", ERROR, 0)
         finally:
+            self.en_hilo = False
             self.poner_ocupado(False)
 
 
@@ -413,6 +483,7 @@ class DescargadorApp(App):
     def on_start(self):
         self.splash.animar(self.quitar_splash)
         self.pantalla.cargar_config()
+        Clock.schedule_interval(self.pantalla.sondear, 0.8)
 
 
 try:
