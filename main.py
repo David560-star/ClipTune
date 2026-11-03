@@ -1,10 +1,8 @@
+import json
 import os
-import re
 import threading
 import traceback
 
-import yt_dlp
-import yt_dlp.version
 from kivy.app import App
 from kivy.animation import Animation
 from kivy.clock import Clock
@@ -20,18 +18,8 @@ from kivy.uix.floatlayout import FloatLayout
 from kivy.uix.image import Image
 from kivy.uix.widget import Widget
 
-try:
-    import certifi
-    os.environ["SSL_CERT_FILE"] = certifi.where()
-except Exception:
-    pass
-
-BASE = "/storage/emulated/0"
-
-# Clientes de YouTube a probar en orden (None = el predeterminado)
-CLIENTES_YT = [None, ["web_embedded"], ["visionos"], ["tv"],
-               ["android"], ["ios"]]
-PLANTILLA = "%(title).60s [%(id.-6:)s].%(ext)s"
+from descarga import (Cancelado, descargar, extraer_enlace,
+                      ruta_config, version_ytdlp)
 
 # Colores con buen contraste (texto claro sobre fondo oscuro)
 FONDO = (0.07, 0.08, 0.11, 1)
@@ -70,6 +58,7 @@ Builder.load_string('''
     font_size: '18sp'
     size_hint_y: None
     height: dp(60)
+    opacity: .45 if self.disabled else 1
     canvas.before:
         Color:
             rgba: self.fondo if self.state == 'normal' else [self.fondo[0] * .7, self.fondo[1] * .7, self.fondo[2] * .7, 1]
@@ -95,73 +84,6 @@ Builder.load_string('''
             size: self.width * self.progreso / 100., self.height
             radius: [dp(5)]
 ''')
-
-
-class Silencio:
-    def debug(self, msg): pass
-    def info(self, msg): pass
-    def warning(self, msg): pass
-    def error(self, msg): pass
-
-
-def carpeta_trabajo(formato):
-    """En el APK: carpeta privada de la app. Fuera: Movies/Music."""
-    try:
-        from jnius import autoclass
-        Act = autoclass("org.kivy.android.PythonActivity")
-        ruta = Act.mActivity.getExternalFilesDir(None)
-        return ruta.getAbsolutePath(), True
-    except Exception:
-        sub = "Music" if formato == "audio" else "Movies"
-        return f"{BASE}/{sub}", False
-
-
-def publicar(ruta, formato):
-    from jnius import autoclass
-    Act = autoclass("org.kivy.android.PythonActivity")
-    CV = autoclass("android.content.ContentValues")
-    File = autoclass("java.io.File")
-    Files = autoclass("java.nio.file.Files")
-    ext = os.path.splitext(ruta)[1].lower()
-    if formato == "audio":
-        tabla = autoclass("android.provider.MediaStore$Audio$Media")
-        mime = {".m4a": "audio/mp4", ".webm": "audio/webm",
-                ".mp3": "audio/mpeg"}.get(ext, "audio/mp4")
-        carpeta = "Music/"
-    else:
-        tabla = autoclass("android.provider.MediaStore$Video$Media")
-        mime = {".webm": "video/webm",
-                ".mkv": "video/x-matroska"}.get(ext, "video/mp4")
-        carpeta = "Movies/"
-    resolver = Act.mActivity.getContentResolver()
-    cv = CV()
-    cv.put("_display_name", os.path.basename(ruta))
-    cv.put("mime_type", mime)
-    cv.put("relative_path", carpeta)
-    uri = resolver.insert(tabla.EXTERNAL_CONTENT_URI, cv)
-    salida = resolver.openOutputStream(uri)
-    Files.copy(File(ruta).toPath(), salida)
-    salida.close()
-    os.remove(ruta)
-
-
-def hacer_opciones(formato, calidad, hook, carpeta):
-    op = {"noplaylist": True, "overwrites": True,
-          "logger": Silencio(), "noprogress": True,
-          "progress_hooks": [hook],
-          "outtmpl": f"{carpeta}/{PLANTILLA}"}
-    if formato == "audio":
-        op["format"] = "bestaudio[ext=m4a]/bestaudio"
-    else:
-        op["format"] = "best"
-        op["format_sort"] = [f"res:{calidad}", "vcodec:h264"]
-    return op
-
-
-def extraer_enlace(texto):
-    """Saca el primer enlace de un texto compartido."""
-    m = re.search(r"https?://\S+", texto or "")
-    return m.group(0) if m else ""
 
 
 KV_PANTALLA = '''
@@ -236,6 +158,44 @@ KV_PANTALLA = '''
             background_color: 0.24, 0.27, 0.35, 1
             color: 1, 1, 1, 1
 
+    BoxLayout:
+        size_hint_y: None
+        height: dp(50)
+        spacing: dp(10)
+        Label:
+            text: 'Guardar en'
+            font_size: '16sp'
+            color: 0.95, 0.96, 0.98, 1
+            halign: 'left'
+            valign: 'middle'
+            text_size: self.size
+        Spinner:
+            id: destino
+            text: 'Automática'
+            values: ('Automática', 'Descargas')
+            size_hint_x: None
+            width: dp(150)
+            font_size: '17sp'
+            bold: True
+            background_normal: ''
+            background_color: 0.24, 0.27, 0.35, 1
+            color: 1, 1, 1, 1
+
+    TextInput:
+        id: subcarpeta
+        hint_text: 'Subcarpeta (opcional)'
+        multiline: False
+        size_hint_y: None
+        height: dp(50)
+        font_size: '16sp'
+        padding: [dp(14), dp(14), dp(14), dp(8)]
+        background_normal: ''
+        background_active: ''
+        background_color: 0.15, 0.17, 0.23, 1
+        foreground_color: 0.95, 0.96, 0.98, 1
+        hint_text_color: 0.70, 0.73, 0.80, 1
+        cursor_color: 0.40, 0.70, 1, 1
+
     Boton:
         id: b_video
         text: 'Descargar video'
@@ -248,17 +208,39 @@ KV_PANTALLA = '''
         fondo: 0.05, 0.48, 0.35, 1
         on_release: root.iniciar('audio')
 
+    Boton:
+        id: b_cancelar
+        text: 'Cancelar descarga'
+        fondo: 0.62, 0.13, 0.13, 1
+        height: dp(50)
+        disabled: True
+        on_release: root.cancelar_descarga()
+
     Barra:
         id: barra
 
-    Label:
-        id: estado
-        text: 'Listo'
-        font_size: '16sp'
-        color: 0.78, 0.80, 0.86, 1
-        halign: 'center'
-        valign: 'top'
-        text_size: self.size
+    BoxLayout:
+        orientation: 'vertical'
+        spacing: dp(6)
+        Label:
+            id: estado
+            text: 'Listo'
+            font_size: '16sp'
+            color: 0.78, 0.80, 0.86, 1
+            halign: 'center'
+            size_hint_y: None
+            height: self.texture_size[1]
+            text_size: self.width, None
+        Label:
+            id: ruta
+            text: ''
+            font_size: '12sp'
+            color: 0.70, 0.73, 0.80, 1
+            halign: 'center'
+            size_hint_y: None
+            height: self.texture_size[1]
+            text_size: self.width, None
+        Widget:
 '''
 Builder.load_string(KV_PANTALLA)
 
@@ -298,6 +280,7 @@ class Splash(FloatLayout):
 
 class Pantalla(BoxLayout):
     ocupado = False
+    cancelado = False
 
     def pegar(self):
         try:
@@ -320,9 +303,10 @@ class Pantalla(BoxLayout):
         else:
             self.mostrar("Lo compartido no tiene un enlace.", ERROR)
 
-    def mostrar(self, texto, color=TEXTO_SUAVE, progreso=None):
+    def mostrar(self, texto, color=TEXTO_SUAVE, progreso=None, ruta=""):
         def _ui(dt):
             self.ids.estado.text = texto
+            self.ids.ruta.text = ruta
             self.ids.estado.color = color
             if progreso is not None:
                 self.ids.barra.progreso = progreso
@@ -330,6 +314,41 @@ class Pantalla(BoxLayout):
 
     def poner_ocupado(self, valor):
         self.ocupado = valor
+
+        def _ui(dt):
+            self.ids.b_cancelar.disabled = not valor
+            self.ids.b_video.disabled = valor
+            self.ids.b_musica.disabled = valor
+        Clock.schedule_once(_ui)
+
+    def cancelar_descarga(self):
+        if self.ocupado:
+            self.cancelado = True
+            self.mostrar("Cancelando...", TEXTO_SUAVE)
+
+    def _ruta_config(self):
+        return ruta_config()
+
+    def cargar_config(self):
+        try:
+            with open(self._ruta_config()) as f:
+                c = json.load(f)
+            if c.get("destino") in self.ids.destino.values:
+                self.ids.destino.text = c["destino"]
+            if c.get("calidad") in self.ids.calidad.values:
+                self.ids.calidad.text = c["calidad"]
+            self.ids.subcarpeta.text = c.get("sub", "")
+        except Exception:
+            pass
+
+    def guardar_config(self):
+        try:
+            with open(self._ruta_config(), "w") as f:
+                json.dump({"destino": self.ids.destino.text,
+                           "calidad": self.ids.calidad.text,
+                           "sub": self.ids.subcarpeta.text}, f)
+        except Exception:
+            pass
 
     def iniciar(self, formato):
         if self.ocupado:
@@ -339,73 +358,46 @@ class Pantalla(BoxLayout):
         if not url:
             self.mostrar("Pega o comparte un enlace primero.", ERROR)
             return
-        self.ocupado = True
+        self.cancelado = False
+        self.poner_ocupado(True)
+        self.guardar_config()
         self.mostrar("Descargando...", TEXTO_SUAVE, 0)
-        threading.Thread(target=self.bajar, args=(url, formato),
-                         daemon=True).start()
+        threading.Thread(
+            target=self.bajar,
+            args=(url, formato, self.ids.destino.text,
+                  self.ids.subcarpeta.text,
+                  int(self.ids.calidad.text)),
+            daemon=True).start()
 
-    def bajar(self, url, formato):
-        def hook(d):
-            if d["status"] == "downloading":
-                tot = (d.get("total_bytes")
-                       or d.get("total_bytes_estimate"))
-                if tot:
-                    pct = d["downloaded_bytes"] * 100 // tot
-                    self.mostrar(f"Descargando {pct}%",
-                                 TEXTO_SUAVE, pct)
+    def bajar(self, url, formato, destino, sub, calidad):
         try:
-            carpeta, privada = carpeta_trabajo(formato)
-            calidad = int(self.ids.calidad.text)
-            es_yt = "youtu" in url
-            # Para YouTube se prueban varios "clientes" hasta que uno
-            # entregue formatos descargables.
-            intentos = CLIENTES_YT if es_yt else [None]
-            ruta = None
-            ultimo_error = ""
-            for n, cliente in enumerate(intentos, 1):
-                if n > 1:
-                    self.mostrar(f"Probando otro método ({n}/{len(intentos)})...",
-                                 TEXTO_SUAVE, 0)
-                op = hacer_opciones(formato, calidad, hook, carpeta)
-                if cliente:
-                    op["extractor_args"] = {
-                        "youtube": {"player_client": cliente}}
-                try:
-                    with yt_dlp.YoutubeDL(op) as ydl:
-                        info = ydl.extract_info(url, download=True)
-                        ruta = info["requested_downloads"][0]["filepath"]
-                    break
-                except Exception as e:
-                    ultimo_error = str(e)
-            if not ruta:
-                raise RuntimeError(ultimo_error or "sin resultado")
-            if privada:
-                self.mostrar("Guardando en la galería...",
-                             TEXTO_SUAVE, 100)
-                publicar(ruta, formato)
-            carpeta_final = "Music" if formato == "audio" else "Movies"
-            self.mostrar(f"Listo ✔ Guardado en {carpeta_final}",
-                         OK, 100)
+            relativa, completa = descargar(
+                url, formato, destino, sub, calidad,
+                al_progreso=lambda p: self.mostrar(
+                    f"Descargando {p}%", TEXTO_SUAVE, p),
+                al_estado=lambda t: self.mostrar(t, TEXTO_SUAVE, 0),
+                cancelado=lambda: self.cancelado)
+            self.mostrar(f"Listo ✔ Guardado en {relativa.rstrip('/')}",
+                         OK, 100, ruta=completa)
+        except Cancelado:
+            self.mostrar("Descarga cancelada", TEXTO_SUAVE, 0)
         except Exception as e:
-            try:
-                ver = yt_dlp.version.__version__
-            except Exception:
-                ver = "?"
-            self.mostrar("No se pudo descargar:\n"
-                         + str(e)[-250:] + f"\n(yt-dlp {ver})", ERROR, 0)
+            self.mostrar("No se pudo descargar:\n" + str(e)[-250:]
+                         + f"\n(yt-dlp {version_ytdlp()})", ERROR, 0)
         finally:
-            self.ocupado = False
+            self.poner_ocupado(False)
 
 
 class DescargadorApp(App):
-    ultimo = ""
 
     def build(self):
         try:
             from android.permissions import (
                 request_permissions, Permission)
-            request_permissions([Permission.READ_EXTERNAL_STORAGE,
-                                 Permission.WRITE_EXTERNAL_STORAGE])
+            request_permissions([
+                Permission.READ_EXTERNAL_STORAGE,
+                Permission.WRITE_EXTERNAL_STORAGE,
+                "android.permission.POST_NOTIFICATIONS"])
         except Exception:
             pass
         self.pantalla = Pantalla()
@@ -420,29 +412,7 @@ class DescargadorApp(App):
 
     def on_start(self):
         self.splash.animar(self.quitar_splash)
-        # Recibir enlaces compartidos desde otras apps (Android)
-        try:
-            from android import activity
-            from jnius import autoclass
-            activity.bind(on_new_intent=self.nuevo_intent)
-            Act = autoclass("org.kivy.android.PythonActivity")
-            self.nuevo_intent(Act.mActivity.getIntent())
-        except Exception:
-            pass
-
-    def nuevo_intent(self, intent):
-        try:
-            if intent is None:
-                return
-            if intent.getAction() != "android.intent.action.SEND":
-                return
-            texto = intent.getStringExtra("android.intent.extra.TEXT")
-            if texto and texto != self.ultimo:
-                self.ultimo = texto
-                Clock.schedule_once(
-                    lambda dt: self.pantalla.recibir_enlace(texto))
-        except Exception:
-            pass
+        self.pantalla.cargar_config()
 
 
 try:
