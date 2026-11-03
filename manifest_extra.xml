@@ -1,5 +1,5 @@
 <activity android:name=".ShareActivity"
-          android:label="MusicDL"
+          android:label="ClipTune"
           android:theme="@android:style/Theme.Translucent.NoTitleBar"
           android:exported="true"
           android:excludeFromRecents="true"

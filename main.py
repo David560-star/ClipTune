@@ -96,7 +96,7 @@ KV_PANTALLA = '''
     spacing: dp(14)
 
     Label:
-        text: 'MusicDL'
+        text: 'ClipTune'
         font_size: '30sp'
         bold: True
         color: 0.95, 0.96, 0.98, 1

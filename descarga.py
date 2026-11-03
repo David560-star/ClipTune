@@ -142,7 +142,7 @@ def arrancar_servicio():
     try:
         Servicio.start(ctx, "")
     except Exception:
-        Servicio.start(ctx, "icon", "MusicDL", "Descargando", "")
+        Servicio.start(ctx, "icon", "ClipTune", "Descargando", "")
 
 
 def carpeta_trabajo(formato):

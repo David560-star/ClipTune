@@ -174,7 +174,7 @@ def main():
     try:
         crear_canal()
         servicio.startForeground(ID_PROGRESO,
-                                 construir("MusicDL", "Preparando..."))
+                                 construir("ClipTune", "Preparando..."))
         escribir_estado("progreso", "Preparando...")
         base = servicio.getFilesDir().getAbsolutePath()
         cola = os.path.join(base, "cola.txt")
@@ -193,7 +193,7 @@ def main():
         detalle = traceback.format_exc()[-300:]
         escribir_estado("error", detalle)
         try:
-            avisar_final("MusicDL: error en el servicio", detalle)
+            avisar_final("ClipTune: error en el servicio", detalle)
         except Exception:
             pass
     finally:

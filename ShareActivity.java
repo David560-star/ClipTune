@@ -13,7 +13,7 @@ import java.io.FileWriter;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-/** Ventanita que aparece al compartir un enlace a MusicDL. */
+/** Ventanita que aparece al compartir un enlace a ClipTune. */
 public class ShareActivity extends Activity {
 
     private String url = "";
@@ -42,7 +42,7 @@ public class ShareActivity extends Activity {
 
         AlertDialog.Builder b = new AlertDialog.Builder(
                 this, android.R.style.Theme_DeviceDefault_Dialog_Alert);
-        b.setTitle("MusicDL");
+        b.setTitle("ClipTune");
         b.setMessage(corto);
         b.setPositiveButton("Video", new DialogInterface.OnClickListener() {
             public void onClick(DialogInterface d, int w) {
@@ -91,7 +91,7 @@ public class ShareActivity extends Activity {
         } catch (NoSuchMethodException e) {
             c.getMethod("start", Context.class, String.class, String.class,
                     String.class, String.class)
-                    .invoke(null, this, "icon", "MusicDL", "Descargando", "");
+                    .invoke(null, this, "icon", "ClipTune", "Descargando", "");
         }
     }
 }
