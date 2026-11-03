@@ -1,5 +1,5 @@
 [app]
-title = MusicDL
+title = ClipTune
 package.name = musicdl2
 package.domain = org.musicdl
 source.dir = .
