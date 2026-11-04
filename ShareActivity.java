@@ -1,4 +1,4 @@
-package org.musicdl.musicdl2;
+package org.ClipTune;
 
 import android.app.Activity;
 import android.app.AlertDialog;
