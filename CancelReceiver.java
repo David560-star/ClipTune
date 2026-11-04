@@ -1,4 +1,4 @@
-package org.musicdl.musicdl2;
+package org.ClipTunes;
 
 import android.content.BroadcastReceiver;
 import android.content.Context;
