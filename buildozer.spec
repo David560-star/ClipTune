@@ -1,7 +1,7 @@
 [app]
 title = ClipTune
 package.name = ClipTune
-package.domain = org.ClopTune
+package.domain = org.ClipTune
 source.dir = .
 source.include_exts = py,png,jpg,kv,atlas
 version = 0.03
