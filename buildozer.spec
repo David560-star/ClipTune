@@ -1,10 +1,10 @@
 [app]
 title = ClipTune
-package.name = ClipTune
-package.domain = org.ClipTune
+package.name = cliptune
+package.domain = org.cliptune
 source.dir = .
 source.include_exts = py,png,jpg,kv,atlas
-version = 0.03
+version = 1.0
 icon.filename = %(source.dir)s/icon.png
 icon.adaptive_foreground.filename = %(source.dir)s/icon_fg.png
 icon.adaptive_background.filename = %(source.dir)s/icon_bg.png

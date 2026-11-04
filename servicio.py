@@ -19,7 +19,7 @@ Intent = autoclass("android.content.Intent")
 Uri = autoclass("android.net.Uri")
 PendingIntent = autoclass("android.app.PendingIntent")
 
-CANAL = "ClipTune_descargas"
+CANAL = "cliptune_descargas"
 ID_PROGRESO = 7101
 _contador = [7200]
 FLAGS_PI = 67108864 | 134217728  # IMMUTABLE | UPDATE_CURRENT

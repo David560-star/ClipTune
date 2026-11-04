@@ -1,4 +1,4 @@
-package org.ClipTune;
+package org.cliptune.cliptune;
 
 import android.content.BroadcastReceiver;
 import android.content.Context;

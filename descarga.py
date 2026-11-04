@@ -54,7 +54,7 @@ def ruta_config():
         base = contexto().getFilesDir().getAbsolutePath()
     except Exception:
         base = os.getcwd()
-    return os.path.join(base, "ClipTune_config.json")
+    return os.path.join(base, "cliptune_config.json")
 
 
 def leer_config():

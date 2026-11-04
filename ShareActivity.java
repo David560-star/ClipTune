@@ -1,4 +1,4 @@
-package org.ClipTune;
+package org.cliptune.cliptune;
 
 import android.app.Activity;
 import android.app.AlertDialog;
