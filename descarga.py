@@ -5,9 +5,6 @@ import re
 import shutil
 import time
 
-import yt_dlp
-import yt_dlp.version
-
 try:
     import certifi
     os.environ["SSL_CERT_FILE"] = certifi.where()
@@ -35,6 +32,7 @@ class Silencio:
 
 def version_ytdlp():
     try:
+        import yt_dlp.version
         return yt_dlp.version.__version__
     except Exception:
         return "?"
@@ -261,6 +259,7 @@ def descargar(url, formato, destino, sub, calidad,
 
     Lanza Cancelado si cancelado() devuelve True.
     """
+    import yt_dlp  # se carga aquí para que la app abra más rápido
     cancelado = cancelado or (lambda: False)
     carpeta = None
 

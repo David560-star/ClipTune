@@ -38,7 +38,7 @@ Window.clearcolor = FONDO
 
 # Color de fondo de la pantalla de entrada. Debe ser igual al fondo de tu
 # icon.png (blanco = (1, 1, 1, 1)). Si tu PNG es transparente, usa FONDO.
-SPLASH_FONDO = (1, 1, 1, 1)
+SPLASH_FONDO = FONDO
 
 
 class Boton(Button):
@@ -249,7 +249,7 @@ Builder.load_string(KV_PANTALLA)
 
 
 class Splash(FloatLayout):
-    """Pantalla de entrada con el logo animado."""
+    """Pantalla de entrada: logo sobre el mismo fondo oscuro de la app."""
 
     def __init__(self, **kw):
         super().__init__(**kw)
@@ -257,8 +257,8 @@ class Splash(FloatLayout):
             Color(*SPLASH_FONDO)
             self.rect = Rectangle(pos=self.pos, size=self.size)
         self.bind(pos=self._actualizar, size=self._actualizar)
-        self.logo = Image(source="icon.png", size_hint=(None, None),
-                          size=(dp(180), dp(180)),
+        self.logo = Image(source="logo.png", size_hint=(None, None),
+                          size=(dp(170), dp(170)),
                           pos_hint={"center_x": .5, "center_y": .5},
                           opacity=0)
         self.add_widget(self.logo)
@@ -267,18 +267,17 @@ class Splash(FloatLayout):
         self.rect.pos = self.pos
         self.rect.size = self.size
 
-    def animar(self, al_terminar):
-        # Solo se anima la opacidad (muy liviano) y se espera un instante
-        # para que la app termine de cargar antes de empezar.
-        def empezar(dt):
-            entrada = Animation(opacity=1, duration=0.4)
-            pausa = Animation(duration=0.4)
-            salida = Animation(opacity=0, duration=0.3)
-            entrada.bind(on_complete=lambda *_: pausa.start(self.logo))
-            pausa.bind(on_complete=lambda *_: salida.start(self))
-            salida.bind(on_complete=lambda *_: al_terminar())
-            entrada.start(self.logo)
-        Clock.schedule_once(empezar, 0.3)
+    def entrar(self):
+        """El logo aparece suave (solo opacidad, muy liviano)."""
+        Animation(opacity=1, duration=0.25).start(self.logo)
+
+    def salir(self, al_terminar, espera=0.4):
+        """Desvanece todo el splash y deja ver la app."""
+        def _fuera(dt):
+            anim = Animation(opacity=0, duration=0.35)
+            anim.bind(on_complete=lambda *_: al_terminar())
+            anim.start(self)
+        Clock.schedule_once(_fuera, espera)
 
 
 class Pantalla(BoxLayout):
@@ -461,6 +460,30 @@ class Pantalla(BoxLayout):
 class DescargadorApp(App):
 
     def build(self):
+        # Primero solo el splash, para que el logo salga lo antes posible
+        self.raiz = FloatLayout()
+        self.splash = Splash()
+        self.raiz.add_widget(self.splash)
+        return self.raiz
+
+    def on_start(self):
+        self.splash.entrar()
+        # La pantalla principal se arma cuando el logo ya apareció
+        Clock.schedule_once(self.montar, 0.35)
+
+    def montar(self, dt):
+        self.pantalla = Pantalla()
+        # index = len(children) la deja DEBAJO del splash
+        self.raiz.add_widget(self.pantalla, index=len(self.raiz.children))
+        self.pantalla.cargar_config()
+        Clock.schedule_interval(self.pantalla.sondear, 0.8)
+        self.splash.salir(self.quitar_splash, espera=0.4)
+
+    def quitar_splash(self):
+        self.raiz.remove_widget(self.splash)
+        self.pedir_permisos()
+
+    def pedir_permisos(self):
         try:
             from android.permissions import (
                 request_permissions, Permission)
@@ -470,20 +493,6 @@ class DescargadorApp(App):
                 "android.permission.POST_NOTIFICATIONS"])
         except Exception:
             pass
-        self.pantalla = Pantalla()
-        self.raiz = FloatLayout()
-        self.raiz.add_widget(self.pantalla)
-        self.splash = Splash()
-        self.raiz.add_widget(self.splash)
-        return self.raiz
-
-    def quitar_splash(self):
-        self.raiz.remove_widget(self.splash)
-
-    def on_start(self):
-        self.splash.animar(self.quitar_splash)
-        self.pantalla.cargar_config()
-        Clock.schedule_interval(self.pantalla.sondear, 0.8)
 
 
 try:
