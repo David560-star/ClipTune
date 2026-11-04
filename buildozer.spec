@@ -1,7 +1,7 @@
 [app]
-title = MusicDL
-package.name = musicdl2
-package.domain = org.musicdl
+title = ClipTune
+package.name = ClipTune
+package.domain = org.ClopTune
 source.dir = .
 source.include_exts = py,png,jpg,kv,atlas
 version = 0.03
