@@ -23,8 +23,8 @@ jobs:
           pip install --upgrade pip cython==0.29.36 buildozer
       - name: Colocar el código Java
         run: |
-          mkdir -p java/org/musicdl/musicdl2
-          cp ShareActivity.java CancelReceiver.java java/org/musicdl/musicdl2/
+          mkdir -p java/org/cliptune/cliptune
+          cp ShareActivity.java CancelReceiver.java java/org/cliptune/cliptune/
       - name: Configurar arquitectura
         run: sed -i 's/^android.archs.*/android.archs = ${{ matrix.arch }}/' buildozer.spec
       - name: Preparar python-for-android
@@ -57,5 +57,5 @@ jobs:
         run: awk '/# Command failed/{exit} {print}' build.log | tail -40
       - uses: actions/upload-artifact@v4
         with:
-          name: ClipTune-${{ matrix.arch }},
+          name: ClipTune-${{ matrix.arch }}
           path: bin/*.apk
