@@ -4,6 +4,7 @@ import threading
 import time
 import traceback
 
+from kivy.app import App
 from kivy.animation import Animation
 from kivy.clock import Clock
 from kivy.core.clipboard import Clipboard
@@ -12,14 +13,11 @@ from kivy.lang import Builder
 from kivy.properties import ListProperty, NumericProperty
 from kivy.graphics import Color, Rectangle
 from kivy.metrics import dp
+from kivy.uix.boxlayout import BoxLayout
+from kivy.uix.button import Button
 from kivy.uix.floatlayout import FloatLayout
 from kivy.uix.image import Image
 from kivy.uix.widget import Widget
-
-from kivymd.app import MDApp
-from kivymd.uix.boxlayout import MDBoxLayout
-from kivymd.uix.button import MDRaisedButton
-from kivymd.uix.menu import MDDropdownMenu
 
 from descarga import (Cancelado, agregar_a_cola, arrancar_servicio,
                       borrar_estado, descargar, extraer_enlace,
@@ -43,28 +41,8 @@ Window.clearcolor = FONDO
 SPLASH_FONDO = (1, 1, 1, 1)
 
 
-class Selector(MDRaisedButton):
-    """Botón que abre un menú de opciones.
-
-    Reemplaza al Spinner de Kivy y mantiene su misma forma de uso:
-    tiene .text (la opción elegida) y .values (la lista de opciones),
-    así cargar_config() y guardar_config() funcionan sin cambios.
-    """
-    values = ListProperty([])
-
-    def abrir(self):
-        items = [{"viewclass": "OneLineListItem",
-                  "text": v,
-                  "on_release": lambda x=v: self.elegir(x)}
-                 for v in self.values]
-        self._menu = MDDropdownMenu(caller=self, items=items, width_mult=3)
-        self._menu.open()
-
-    def elegir(self, valor):
-        self.text = valor
-        menu = getattr(self, "_menu", None)
-        if menu:
-            menu.dismiss()
+class Boton(Button):
+    fondo = ListProperty(AZUL)
 
 
 class Barra(Widget):
@@ -74,11 +52,23 @@ class Barra(Widget):
 Builder.load_string('''
 #:import dp kivy.metrics.dp
 
-<Selector>:
-    md_bg_color: 0.24, 0.27, 0.35, 1
-    text_color: 1, 1, 1, 1
-    font_size: '16sp'
-    on_release: self.abrir()
+<Boton>:
+    background_normal: ''
+    background_down: ''
+    background_color: 0, 0, 0, 0
+    color: 1, 1, 1, 1
+    bold: True
+    font_size: '18sp'
+    size_hint_y: None
+    height: dp(60)
+    opacity: .45 if self.disabled else 1
+    canvas.before:
+        Color:
+            rgba: self.fondo if self.state == 'normal' else [self.fondo[0] * .7, self.fondo[1] * .7, self.fondo[2] * .7, 1]
+        RoundedRectangle:
+            pos: self.pos
+            size: self.size
+            radius: [dp(14)]
 
 <Barra>:
     size_hint_y: None
@@ -102,173 +92,158 @@ Builder.load_string('''
 KV_PANTALLA = '''
 <Pantalla>:
     orientation: 'vertical'
-    md_bg_color: 0.07, 0.08, 0.11, 1
+    padding: dp(20)
+    spacing: dp(14)
 
-    MDTopAppBar:
-        title: 'ClipTune'
-        anchor_title: 'left'
-        elevation: 0
-        md_bg_color: 0.07, 0.08, 0.11, 1
-        specific_text_color: 0.95, 0.96, 0.98, 1
+    Label:
+        text: 'ClipTune'
+        font_size: '30sp'
+        bold: True
+        color: 0.95, 0.96, 0.98, 1
+        size_hint_y: None
+        height: dp(48)
+        halign: 'left'
+        text_size: self.size
 
-    ScrollView:
-        do_scroll_x: False
-        bar_width: 0
+    Label:
+        text: 'Comparte un enlace a esta app o pégalo aquí'
+        font_size: '15sp'
+        color: 0.78, 0.80, 0.86, 1
+        size_hint_y: None
+        height: dp(24)
+        halign: 'left'
+        text_size: self.size
 
-        MDBoxLayout:
-            orientation: 'vertical'
-            adaptive_height: True
-            padding: dp(20), dp(8), dp(20), dp(20)
-            spacing: dp(14)
+    BoxLayout:
+        size_hint_y: None
+        height: dp(56)
+        spacing: dp(10)
+        TextInput:
+            id: enlace
+            hint_text: 'Pega el enlace aquí'
+            multiline: False
+            font_size: '17sp'
+            padding: [dp(14), dp(16), dp(14), dp(10)]
+            background_normal: ''
+            background_active: ''
+            background_color: 0.15, 0.17, 0.23, 1
+            foreground_color: 0.95, 0.96, 0.98, 1
+            hint_text_color: 0.70, 0.73, 0.80, 1
+            cursor_color: 0.40, 0.70, 1, 1
+        Boton:
+            text: 'Pegar'
+            size_hint_x: None
+            width: dp(90)
+            height: dp(56)
+            fondo: 0.24, 0.27, 0.35, 1
+            on_release: root.pegar()
 
-            Label:
-                text: 'Comparte un enlace a esta app o pégalo aquí'
-                font_size: '15sp'
-                color: 0.78, 0.80, 0.86, 1
-                size_hint_y: None
-                height: dp(24)
-                halign: 'left'
-                text_size: self.size
+    BoxLayout:
+        size_hint_y: None
+        height: dp(50)
+        spacing: dp(10)
+        Label:
+            text: 'Calidad del video'
+            font_size: '16sp'
+            color: 0.95, 0.96, 0.98, 1
+            halign: 'left'
+            valign: 'middle'
+            text_size: self.size
+        Spinner:
+            id: calidad
+            text: '1080'
+            values: ('360', '480', '720', '1080')
+            size_hint_x: None
+            width: dp(110)
+            font_size: '17sp'
+            bold: True
+            background_normal: ''
+            background_color: 0.24, 0.27, 0.35, 1
+            color: 1, 1, 1, 1
 
-            MDBoxLayout:
-                adaptive_height: True
-                spacing: dp(8)
+    BoxLayout:
+        size_hint_y: None
+        height: dp(50)
+        spacing: dp(10)
+        Label:
+            text: 'Guardar en'
+            font_size: '16sp'
+            color: 0.95, 0.96, 0.98, 1
+            halign: 'left'
+            valign: 'middle'
+            text_size: self.size
+        Spinner:
+            id: destino
+            text: 'Automática'
+            values: ('Automática', 'Descargas')
+            size_hint_x: None
+            width: dp(150)
+            font_size: '17sp'
+            bold: True
+            background_normal: ''
+            background_color: 0.24, 0.27, 0.35, 1
+            color: 1, 1, 1, 1
 
-                MDTextField:
-                    id: enlace
-                    hint_text: 'Pega el enlace aquí'
-                    mode: 'rectangle'
-                    icon_left: 'link-variant'
-                    multiline: False
-                    font_size: '17sp'
+    TextInput:
+        id: subcarpeta
+        hint_text: 'Subcarpeta (opcional)'
+        multiline: False
+        size_hint_y: None
+        height: dp(50)
+        font_size: '16sp'
+        padding: [dp(14), dp(14), dp(14), dp(8)]
+        background_normal: ''
+        background_active: ''
+        background_color: 0.15, 0.17, 0.23, 1
+        foreground_color: 0.95, 0.96, 0.98, 1
+        hint_text_color: 0.70, 0.73, 0.80, 1
+        cursor_color: 0.40, 0.70, 1, 1
 
-                MDIconButton:
-                    icon: 'content-paste'
-                    pos_hint: {'center_y': .5}
-                    on_release: root.pegar()
+    Boton:
+        id: b_video
+        text: 'Descargar video'
+        fondo: 0.11, 0.37, 0.82, 1
+        on_release: root.iniciar('video')
 
-            MDBoxLayout:
-                orientation: 'vertical'
-                adaptive_height: True
-                padding: dp(16)
-                spacing: dp(12)
-                radius: [dp(16)]
-                md_bg_color: 0.11, 0.13, 0.18, 1
+    Boton:
+        id: b_musica
+        text: 'Descargar música'
+        fondo: 0.05, 0.48, 0.35, 1
+        on_release: root.iniciar('audio')
 
-                MDBoxLayout:
-                    size_hint_y: None
-                    height: dp(48)
-                    spacing: dp(10)
-                    Label:
-                        text: 'Calidad del video'
-                        font_size: '16sp'
-                        color: 0.95, 0.96, 0.98, 1
-                        halign: 'left'
-                        valign: 'middle'
-                        text_size: self.size
-                    Selector:
-                        id: calidad
-                        text: '1080'
-                        values: ['360', '480', '720', '1080']
-                        size_hint_x: None
-                        width: dp(110)
-                        pos_hint: {'center_y': .5}
+    Boton:
+        id: b_cancelar
+        text: 'Cancelar descarga'
+        fondo: 0.62, 0.13, 0.13, 1
+        height: dp(50)
+        disabled: True
+        on_release: root.cancelar_descarga()
 
-                MDBoxLayout:
-                    size_hint_y: None
-                    height: dp(48)
-                    spacing: dp(10)
-                    Label:
-                        text: 'Guardar en'
-                        font_size: '16sp'
-                        color: 0.95, 0.96, 0.98, 1
-                        halign: 'left'
-                        valign: 'middle'
-                        text_size: self.size
-                    Selector:
-                        id: destino
-                        text: 'Automática'
-                        values: ['Automática', 'Descargas']
-                        size_hint_x: None
-                        width: dp(150)
-                        pos_hint: {'center_y': .5}
+    Barra:
+        id: barra
 
-                MDTextField:
-                    id: subcarpeta
-                    hint_text: 'Subcarpeta (opcional)'
-                    mode: 'rectangle'
-                    icon_left: 'folder-outline'
-                    multiline: False
-                    font_size: '16sp'
-
-            MDFillRoundFlatIconButton:
-                id: b_video
-                text: 'Descargar video'
-                icon: 'video'
-                md_bg_color: 0.11, 0.37, 0.82, 1
-                text_color: 1, 1, 1, 1
-                icon_color: 1, 1, 1, 1
-                font_size: '18sp'
-                size_hint_x: 1
-                size_hint_y: None
-                height: dp(56)
-                opacity: .45 if self.disabled else 1
-                on_release: root.iniciar('video')
-
-            MDFillRoundFlatIconButton:
-                id: b_musica
-                text: 'Descargar música'
-                icon: 'music'
-                md_bg_color: 0.05, 0.48, 0.35, 1
-                text_color: 1, 1, 1, 1
-                icon_color: 1, 1, 1, 1
-                font_size: '18sp'
-                size_hint_x: 1
-                size_hint_y: None
-                height: dp(56)
-                opacity: .45 if self.disabled else 1
-                on_release: root.iniciar('audio')
-
-            MDFillRoundFlatIconButton:
-                id: b_cancelar
-                text: 'Cancelar descarga'
-                icon: 'close-circle-outline'
-                md_bg_color: 0.62, 0.13, 0.13, 1
-                text_color: 1, 1, 1, 1
-                icon_color: 1, 1, 1, 1
-                font_size: '16sp'
-                size_hint_x: 1
-                size_hint_y: None
-                height: dp(48)
-                disabled: True
-                opacity: .45 if self.disabled else 1
-                on_release: root.cancelar_descarga()
-
-            Barra:
-                id: barra
-
-            MDBoxLayout:
-                orientation: 'vertical'
-                adaptive_height: True
-                spacing: dp(6)
-                Label:
-                    id: estado
-                    text: 'Listo'
-                    font_size: '16sp'
-                    color: 0.78, 0.80, 0.86, 1
-                    halign: 'center'
-                    size_hint_y: None
-                    height: self.texture_size[1]
-                    text_size: self.width, None
-                Label:
-                    id: ruta
-                    text: ''
-                    font_size: '12sp'
-                    color: 0.70, 0.73, 0.80, 1
-                    halign: 'center'
-                    size_hint_y: None
-                    height: self.texture_size[1]
-                    text_size: self.width, None
+    BoxLayout:
+        orientation: 'vertical'
+        spacing: dp(6)
+        Label:
+            id: estado
+            text: 'Listo'
+            font_size: '16sp'
+            color: 0.78, 0.80, 0.86, 1
+            halign: 'center'
+            size_hint_y: None
+            height: self.texture_size[1]
+            text_size: self.width, None
+        Label:
+            id: ruta
+            text: ''
+            font_size: '12sp'
+            color: 0.70, 0.73, 0.80, 1
+            halign: 'center'
+            size_hint_y: None
+            height: self.texture_size[1]
+            text_size: self.width, None
+        Widget:
 '''
 Builder.load_string(KV_PANTALLA)
 
@@ -306,7 +281,7 @@ class Splash(FloatLayout):
         Clock.schedule_once(empezar, 0.3)
 
 
-class Pantalla(MDBoxLayout):
+class Pantalla(BoxLayout):
     ocupado = False
     cancelado = False
     modo_servicio = False   # descarga pedida desde esta pantalla
@@ -483,12 +458,9 @@ class Pantalla(MDBoxLayout):
             self.poner_ocupado(False)
 
 
-class DescargadorApp(MDApp):
+class DescargadorApp(App):
 
     def build(self):
-        # Tema de KivyMD (debe ir antes de crear la pantalla)
-        self.theme_cls.theme_style = "Dark"
-        self.theme_cls.primary_palette = "Indigo"
         try:
             from android.permissions import (
                 request_permissions, Permission)
