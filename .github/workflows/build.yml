@@ -27,6 +27,18 @@ jobs:
           cp ShareActivity.java CancelReceiver.java java/org/cliptune/cliptune/
       - name: Configurar arquitectura
         run: sed -i 's/^android.archs.*/android.archs = ${{ matrix.arch }}/' buildozer.spec
+      - name: Firma fija (para actualizar sin desinstalar)
+        env:
+          KS: ${{ secrets.DEBUG_KEYSTORE_B64 }}
+        run: |
+          mkdir -p ~/.android
+          if [ -n "$KS" ]; then
+            echo "$KS" | base64 -d > ~/.android/debug.keystore
+            keytool -list -keystore ~/.android/debug.keystore -storepass android | grep -i "SHA-256"
+            echo "Firma fija lista"
+          else
+            echo "AVISO: no encontré el secreto DEBUG_KEYSTORE_B64"
+          fi
       - name: Preparar python-for-android
         run: |
           buildozer -v android p4a -- --help || true
