@@ -253,6 +253,138 @@ def extraer_enlace(texto):
     return m.group(0) if m else ""
 
 
+# ---------- Etiquetas y portada para la música ----------
+_RUIDO = re.compile(
+    r"\s*[\(\[]\s*(official|oficial|lyrics?|letra|video|audio|hd|hq|4k|"
+    r"visuali[sz]er|music video)[^\)\]]*[\)\]]", re.I)
+
+
+def limpiar_titulo(t):
+    """Quita cosas como (Official Video) o [Lyrics] del título."""
+    limpio = _RUIDO.sub("", t or "").strip(" -–")
+    return limpio or (t or "")
+
+
+def datos_audio(info):
+    """Devuelve (título, artista, álbum) a partir de lo que dice la fuente."""
+    titulo = info.get("track") or limpiar_titulo(info.get("title"))
+    artista = info.get("artist") or info.get("creator") or ""
+    if isinstance(artista, (list, tuple)):
+        artista = ", ".join(artista)
+    if not artista and " - " in titulo:
+        izq, der = titulo.split(" - ", 1)
+        if 0 < len(izq) <= 40 and der.strip():
+            artista, titulo = izq.strip(), der.strip()
+    if not artista:
+        artista = info.get("uploader") or info.get("channel") or ""
+    artista = re.sub(r"\s*-\s*Topic$", "", artista).strip()
+    album = info.get("album") or ""
+    return titulo.strip(), artista, album
+
+
+def elegir_portada(info):
+    """Direcciones de imagen a probar, de mejor a peor (JPG primero)."""
+    cands = [t for t in (info.get("thumbnails") or []) if t.get("url")]
+    jpg = [t for t in cands
+           if re.search(r"\.jpe?g(\?|$)", t["url"], re.I)]
+    jpg.sort(key=lambda t: (t.get("width") or 0, t.get("preference") or 0),
+             reverse=True)
+    urls = [t["url"] for t in jpg][:4]
+    otra = info.get("thumbnail")
+    if otra and otra not in urls:
+        urls.append(otra)
+    return urls
+
+
+def bajar_bytes(url, ydl=None):
+    if ydl is not None:
+        try:
+            return ydl.urlopen(url).read()
+        except Exception:
+            pass
+    try:
+        import urllib.request
+        with urllib.request.urlopen(url, timeout=15) as r:
+            return r.read()
+    except Exception:
+        return None
+
+
+def preparar_portada(datos):
+    """Devuelve (bytes, 'jpeg'|'png'). Con Pillow la recorta cuadrada."""
+    try:
+        import io
+        from PIL import Image
+        im = Image.open(io.BytesIO(datos)).convert("RGB")
+        w, h = im.size
+        lado = min(w, h)
+        x, y = (w - lado) // 2, (h - lado) // 2
+        im = im.crop((x, y, x + lado, y + lado))
+        if lado > 600:
+            im = im.resize((600, 600), Image.LANCZOS)
+        buf = io.BytesIO()
+        im.save(buf, "JPEG", quality=90)
+        return buf.getvalue(), "jpeg"
+    except Exception:
+        pass
+    if datos[:3] == b"\xff\xd8\xff":
+        return datos, "jpeg"
+    if datos[:8] == b"\x89PNG\r\n\x1a\n":
+        return datos, "png"
+    return None
+
+
+def etiquetar_audio(ruta, info, ydl=None):
+    """Escribe título, artista y portada. Nunca rompe la descarga."""
+    try:
+        titulo, artista, album = datos_audio(info)
+        portada = None
+        for u in elegir_portada(info):
+            datos = bajar_bytes(u, ydl)
+            if datos and len(datos) > 1000:
+                portada = preparar_portada(datos)
+                if portada:
+                    break
+        ext = os.path.splitext(ruta)[1].lower()
+        if ext in (".m4a", ".mp4"):
+            from mutagen.mp4 import MP4, MP4Cover
+            t = MP4(ruta)
+            if t.tags is None:
+                t.add_tags()
+            t["\xa9nam"] = [titulo]
+            if artista:
+                t["\xa9ART"] = [artista]
+                t["aART"] = [artista]
+            if album:
+                t["\xa9alb"] = [album]
+            if portada:
+                fmt = (MP4Cover.FORMAT_PNG if portada[1] == "png"
+                       else MP4Cover.FORMAT_JPEG)
+                t["covr"] = [MP4Cover(portada[0], imageformat=fmt)]
+            t.save()
+        elif ext == ".mp3":
+            from mutagen.id3 import (ID3, ID3NoHeaderError, TIT2, TPE1,
+                                     TALB, APIC)
+            try:
+                t = ID3(ruta)
+            except ID3NoHeaderError:
+                t = ID3()
+            t.add(TIT2(encoding=3, text=titulo))
+            if artista:
+                t.add(TPE1(encoding=3, text=artista))
+            if album:
+                t.add(TALB(encoding=3, text=album))
+            if portada:
+                t.add(APIC(encoding=3, mime="image/" + portada[1],
+                           type=3, desc="Cover", data=portada[0]))
+            t.save(ruta)
+        else:
+            return False
+        return True
+    except Exception:
+        return False
+
+
 def descargar(url, formato, destino, sub, calidad,
               al_progreso=None, al_estado=None, cancelado=None):
     """Descarga y guarda. Devuelve un dict: relativa, ruta, uri, mime.
@@ -291,6 +423,10 @@ def descargar(url, formato, destino, sub, calidad,
                 with yt_dlp.YoutubeDL(op) as ydl:
                     info = ydl.extract_info(url, download=True)
                     ruta = info["requested_downloads"][0]["filepath"]
+                    if formato == "audio":
+                        if al_estado:
+                            al_estado("Agregando portada y datos...")
+                        etiquetar_audio(ruta, info, ydl)
                 break
             except Exception as e:
                 if cancelado():
